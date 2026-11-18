@@ -62,12 +62,7 @@ $("#login-form").addEventListener("submit", async (e) => {
   const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
   $("#login-msg").textContent = error ? error.message : "Check your inbox for the sign-in link ✉️";
 });
-    $("#login-msg").textContent = error ? error.message : "Signing in…";
-    return;
-  }
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
-  $("#login-msg").textContent = error ? error.message : "Check your inbox for the sign-in link ✉️";
-});
+   $("#logout").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); }); 
 $("#logout").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
 sb.auth.onAuthStateChange((evt) => { if (evt === "SIGNED_IN" && $("#app").classList.contains("hidden")) boot(); });
 
