@@ -53,9 +53,15 @@ function showLogin(msg = "") {
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = $("#login-email").value.trim();
-    const password = $("#login-password").value;
+  const password = $("#login-password").value;
   if (password) {
     const { error } = await sb.auth.signInWithPassword({ email, password });
+    $("#login-msg").textContent = error ? error.message : "Signing in…";
+    return;
+  }
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
+  $("#login-msg").textContent = error ? error.message : "Check your inbox for the sign-in link ✉️";
+});
     $("#login-msg").textContent = error ? error.message : "Signing in…";
     return;
   }
