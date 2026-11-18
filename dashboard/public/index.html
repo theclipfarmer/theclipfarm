@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clip Farm · GTA6</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23ff3d8b'/><path d='M11 9l13 7-13 7z' fill='white'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="config.js"></script>
+</head>
+<body>
+  <div class="sky"></div>
+
+  <!-- Signed-out view -->
+  <section id="login" class="login hidden">
+    <div class="login-card">
+      <div class="brand big"><span class="logo">▶</span> CLIP<b>FARM</b></div>
+      <p class="muted">Sign in with the email you added to <code>dashboard_users</code>.</p>
+      <form id="login-form">
+        <input id="login-email" type="email" placeholder="you@example.com" required />
+        <button class="btn primary" type="submit">Send magic link</button>
+      </form>
+      <p id="login-msg" class="muted small"></p>
+    </div>
+  </section>
+
+  <!-- Missing config -->
+  <section id="setup" class="login hidden">
+    <div class="login-card">
+      <div class="brand big"><span class="logo">▶</span> CLIP<b>FARM</b></div>
+      <p>Almost there — add <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> to your Netlify
+        environment variables, then redeploy.</p>
+    </div>
+  </section>
+
+  <!-- App -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="brand"><span class="logo">▶</span> CLIP<b>FARM</b> <span class="tag">GTA6</span></div>
+      <nav id="tabs">
+        <button data-tab="overview" class="active">Overview</button>
+        <button data-tab="creators">Creators</button>
+        <button data-tab="queue">Queue <span id="queue-count" class="pill"></span></button>
+        <button data-tab="posted">Posted</button>
+        <button data-tab="settings">Settings</button>
+        <button data-tab="activity">Activity</button>
+      </nav>
+      <button id="logout" class="btn ghost small">Sign out</button>
+    </header>
+
+    <main>
+      <!-- OVERVIEW -->
+      <section data-panel="overview">
+        <div id="mode-banner" class="banner hidden"></div>
+        <div class="stats" id="stats"></div>
+        <div class="row gap">
+          <button class="btn primary" id="run-now">⚡ Run farm now</button>
+          <button class="btn" id="post-now">▲ Post one clip now</button>
+          <label class="switch"><input type="checkbox" id="pause-toggle" /><span></span> Paused</label>
+        </div>
+        <p id="trigger-msg" class="muted small"></p>
+        <h3>Next up</h3>
+        <div id="next-up" class="grid"></div>
+        <h3>Recent runs</h3>
+        <div id="recent-runs"></div>
+      </section>
+
+      <!-- CREATORS -->
+      <section data-panel="creators" class="hidden">
+        <form id="creator-form" class="card form-row">
+          <input id="creator-input" placeholder="@handle, channel URL, or UC… channel ID" required />
+          <input id="creator-note" placeholder="Permission note (e.g. 'Clipping program — Discord, Nov 2026')" />
+          <label class="check"><input type="checkbox" id="creator-perm" /> I have permission to clip this creator</label>
+          <button class="btn primary" type="submit">Add creator</button>
+        </form>
+        <p class="muted small">New creators are checked on the next hourly run. Creators without permission ticked are never clipped.</p>
+        <table class="table" id="creators-table"></table>
+      </section>
+
+      <!-- QUEUE -->
+      <section data-panel="queue" class="hidden">
+        <div class="row gap wrap">
+          <div class="seg" id="queue-filter">
+            <button data-f="all" class="active">All</button>
+            <button data-f="needs_review">Needs review</button>
+            <button data-f="ready">Ready</button>
+            <button data-f="failed">Failed</button>
+          </div>
+        </div>
+        <div id="queue" class="grid"></div>
+      </section>
+
+      <!-- POSTED -->
+      <section data-panel="posted" class="hidden">
+        <table class="table" id="posted-table"></table>
+      </section>
+
+      <!-- SETTINGS -->
+      <section data-panel="settings" class="hidden">
+        <form id="settings-form" class="settings"></form>
+      </section>
+
+      <!-- ACTIVITY -->
+      <section data-panel="activity" class="hidden">
+        <h3>Source videos</h3>
+        <table class="table" id="videos-table"></table>
+        <h3>Runs</h3>
+        <div id="runs"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

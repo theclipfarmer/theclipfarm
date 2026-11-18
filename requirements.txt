@@ -1,0 +1,2 @@
+# The worker itself is pure standard library. Only the downloader is installed.
+yt-dlp[default]
