@@ -8,6 +8,25 @@ import subprocess
 from pathlib import Path
 
 WATCH = "https://www.youtube.com/watch?v={id}"
+TWITCH_VOD = "https://www.twitch.tv/videos/{id}"
+
+
+def is_twitch(video_id: str) -> bool:
+    return video_id.startswith("tw_")
+
+
+def url_for(video_id: str) -> str:
+    """Our ids: YouTube video ids as-is; Twitch VODs as 'tw_<digits>'."""
+    if is_twitch(video_id):
+        return TWITCH_VOD.format(id=video_id[3:])
+    return WATCH.format(id=video_id)
+
+
+def source_link(video_id: str, start_s: float) -> str:
+    t = int(start_s)
+    if is_twitch(video_id):
+        return f"{url_for(video_id)}?t={t // 3600}h{t % 3600 // 60}m{t % 60}s"
+    return f"{url_for(video_id)}&t={t}s"
 
 
 class MediaError(RuntimeError):
@@ -26,9 +45,16 @@ def _ytdlp_base() -> list[str]:
     return args
 
 
+def _say(msg: str):
+    print(f"    · {msg}", flush=True)
+
+
 def _run(cmd: list[str], *, cwd: str | None = None, timeout: int = 1800, capture=True) -> str:
-    p = subprocess.run(cmd, cwd=cwd, timeout=timeout, text=True,
-                       stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE)
+    try:
+        p = subprocess.run(cmd, cwd=cwd, timeout=timeout, text=True,
+                           stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE)
+    except subprocess.TimeoutExpired:
+        raise MediaError(f"{cmd[0]} timed out after {timeout // 60} min") from None
     if p.returncode != 0:
         err = (p.stderr or "")[-1500:]
         if "confirm you" in err and "bot" in err:
@@ -40,7 +66,8 @@ def _run(cmd: list[str], *, cwd: str | None = None, timeout: int = 1800, capture
 
 # ---------------------------------------------------------------- yt-dlp
 def video_info(video_id: str) -> dict:
-    out = _run(_ytdlp_base() + ["-J", "--skip-download", WATCH.format(id=video_id)], timeout=300)
+    _say("reading video info")
+    out = _run(_ytdlp_base() + ["-J", "--skip-download", url_for(video_id)], timeout=300)
     return json.loads(out)
 
 
@@ -48,10 +75,11 @@ def fetch_caption_words(video_id: str, workdir: str):
     """Download English captions (manual if present, else auto) as json3 and parse to words."""
     from .highlights import parse_json3
     tmpl = os.path.join(workdir, "subs.%(ext)s")
+    _say("fetching captions")
     try:
         _run(_ytdlp_base() + ["--skip-download", "--write-subs", "--write-auto-subs",
                               "--sub-langs", "en.*,en", "--sub-format", "json3",
-                              "-o", tmpl, WATCH.format(id=video_id)], timeout=300)
+                              "-o", tmpl, url_for(video_id)], timeout=300)
     except MediaError:
         return None
     files = sorted(glob.glob(os.path.join(workdir, "subs*.json3")),
@@ -66,18 +94,33 @@ def fetch_caption_words(video_id: str, workdir: str):
     return None
 
 
-def fetch_audio_signal(video_id: str, workdir: str, max_duration: float = 4 * 3600):
-    """Download low-bitrate audio and compute a per-second loudness-spike signal."""
+def fetch_audio_signal(video_id: str, workdir: str, max_duration: float = 4 * 3600,
+                       start: float = 0.0):
+    """Download low-bitrate audio for [start, start+max_duration] and compute a per-second
+    loudness-spike signal (index 0 = `start`)."""
     from .highlights import audio_signal
     tmpl = os.path.join(workdir, "audio.%(ext)s")
-    _run(_ytdlp_base() + ["-f", "wa[acodec!=none]/ba[abr<=96]/ba", "-o", tmpl,
-                          "--download-sections", f"*0-{int(max_duration)}",
-                          WATCH.format(id=video_id)], timeout=1800)
+    if is_twitch(video_id):
+        # Twitch is HLS: section downloads are fast and avoid fetching hours of stream.
+        _say(f"downloading stream audio {int(start) // 60}–{int(start + max_duration) // 60} min")
+        _run(_ytdlp_base() + ["-f", "audio_only/160p/worst", "-o", tmpl, "--concurrent-fragments", "8",
+                              "--download-sections", f"*{int(start)}-{int(start + max_duration)}",
+                              url_for(video_id)], timeout=1800)
+        trim = []
+    else:
+        # YouTube throttles section downloads to ~real time, so fetch the whole (small,
+        # lowest-quality) audio track with the fast chunked downloader and trim locally.
+        _say("downloading audio for loudness analysis")
+        _run(_ytdlp_base() + ["-f", "wa[acodec!=none]/ba[abr<=96]/ba", "-o", tmpl,
+                              "--http-chunk-size", "10M", "--concurrent-fragments", "4",
+                              url_for(video_id)], timeout=900)
+        trim = ["-ss", str(int(start)), "-t", str(int(max_duration))]
     src = next(iter(glob.glob(os.path.join(workdir, "audio.*"))), None)
     if not src:
         return None
     sr = 8000
-    p = subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-ac", "1", "-ar", str(sr),
+    _say("analysing loudness")
+    p = subprocess.run(["ffmpeg", "-v", "error", *trim, "-i", src, "-ac", "1", "-ar", str(sr),
                         "-f", "s16le", "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                        timeout=1800)
     os.remove(src)
@@ -86,14 +129,31 @@ def fetch_audio_signal(video_id: str, workdir: str, max_duration: float = 4 * 36
     return audio_signal(p.stdout, sr)
 
 
+def twitch_vods(user: str, limit: int = 5) -> list[dict]:
+    """Newest past broadcasts (VODs) of a Twitch channel, including one still being recorded."""
+    out = _run(_ytdlp_base() + ["--flat-playlist", "-J", "--playlist-end", str(limit),
+                                f"https://www.twitch.tv/{user}/videos?filter=archives&sort=time"],
+               timeout=300)
+    data = json.loads(out)
+    vods = []
+    for e in data.get("entries") or []:
+        vid = str(e.get("id") or "").lstrip("v")
+        if vid.isdigit():
+            vods.append({"id": f"tw_{vid}", "title": e.get("title") or f"{user} stream",
+                         "timestamp": e.get("timestamp")})
+    return vods
+
+
 def download_section(video_id: str, start: float, end: float, dest_base: str) -> str:
     """Download only [start, end] of the video (max 1080p) — no need to fetch the whole VOD."""
     s, e = max(0.0, start - 0.5), end + 0.5
+    _say(f"downloading clip {int(s) // 60}:{int(s) % 60:02d}–{int(e) // 60}:{int(e) % 60:02d}")
     _run(_ytdlp_base() + [
-        "-f", "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/bv*+ba/b",
+        "-f", ("1080p60/1080p/best[height<=1080]/best" if is_twitch(video_id)
+               else "bv*[height<=1080][fps<=60]+ba/b[height<=1080]/bv*+ba/b"),
         "--download-sections", f"*{s:.2f}-{e:.2f}", "--force-keyframes-at-cuts",
         "--merge-output-format", "mp4", "-o", dest_base + ".%(ext)s",
-        WATCH.format(id=video_id)], timeout=1800)
+        url_for(video_id)], timeout=900)
     files = [f for f in glob.glob(dest_base + ".*") if not f.endswith((".part", ".ytdl"))]
     if not files:
         raise MediaError("section download produced no file")
